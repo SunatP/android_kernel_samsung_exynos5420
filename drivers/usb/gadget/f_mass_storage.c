@@ -95,6 +95,62 @@
  * data track and no audio tracks; hence there need be only one
  * backing file per LUN.
  *
+ *
+ * MSF includes support for module parameters.  If gadget using it
+ * decides to use it, the following module parameters will be
+ * available:
+ *
+ *	file=filename[,filename...]
+ *			Names of the files or block devices used for
+ *				backing storage.
+ *	ro=b[,b...]	Default false, boolean for read-only access.
+ *	removable=b[,b...]
+ *			Default false, boolean for removable media.
+ *	cdrom=b[,b...]	Default false, boolean for whether to emulate
+ *				a CD-ROM drive.
+ *	nofua=b[,b...]	Default false, booleans for ignore FUA flag
+ *				in SCSI WRITE(10,12) commands
+ *	luns=N		Default N = number of filenames, number of
+ *				LUNs to support.
+ *	stall		Default determined according to the type of
+ *				USB device controller (usually true),
+ *				boolean to permit the driver to halt
+ *				bulk endpoints.
+ *
+ * The module parameters may be prefixed with some string.  You need
+ * to consult gadget's documentation or source to verify whether it is
+ * using those module parameters and if it does what are the prefixes
+ * (look for FSG_MODULE_PARAMETERS() macro usage, what's inside it is
+ * the prefix).
+ *
+ *
+ * Requirements are modest; only a bulk-in and a bulk-out endpoint are
+ * needed.  The memory requirement amounts to two 16K buffers, size
+ * configurable by a parameter.  Support is included for both
+ * full-speed and high-speed operation.
+ *
+ * Note that the driver is slightly non-portable in that it assumes a
+ * single memory/DMA buffer will be useable for bulk-in, bulk-out, and
+ * interrupt-in endpoints.  With most device controllers this isn't an
+ * issue, but there may be some with hardware restrictions that prevent
+ * a buffer from being used by more than one endpoint.
+ *
+ *
+ * The pathnames of the backing files and the ro settings are
+ * available in the attribute files "file" and "ro" in the lun<n> (or
+ * to be more precise in a directory which name comes from
+ * "lun_name_format" option!) subdirectory of the gadget's sysfs
+ * directory.  If the "removable" option is set, writing to these
+ * files will simulate ejecting/loading the medium (writing an empty
+ * line means eject) and adjusting a write-enable tab.  Changes to the
+ * ro setting are not allowed when the medium is loaded or if CD-ROM
+ * emulation is being used.
+ *
+ * When a LUN receive an "eject" SCSI request (Start/Stop Unit),
+ * if the LUN is removable, the backing file is released to simulate
+ * ejection.
+ *
+ *
  * This function is heavily based on "File-backed Storage Gadget" by
  * Alan Stern which in turn is heavily based on "Gadget Zero" by David
  * Brownell.  The driver's SCSI command interface was based on the

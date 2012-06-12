@@ -136,15 +136,14 @@
  * a buffer from being used by more than one endpoint.
  *
  *
- * The pathnames of the backing files and the ro settings are
- * available in the attribute files "file" and "ro" in the lun<n> (or
- * to be more precise in a directory which name comes from
- * "lun_name_format" option!) subdirectory of the gadget's sysfs
- * directory.  If the "removable" option is set, writing to these
- * files will simulate ejecting/loading the medium (writing an empty
- * line means eject) and adjusting a write-enable tab.  Changes to the
- * ro setting are not allowed when the medium is loaded or if CD-ROM
- * emulation is being used.
+ * The pathnames of the backing files, the ro settings and nofua
+ * settings are available in the attribute files "file", "ro" and
+ * "nofua" in the lun<n> subdirectory of the gadget's sysfs directory.
+ * If the "removable" option is set, writing to these files will
+ * simulate ejecting/loading the medium (writing an empty line means
+ * eject) and adjusting a write-enable tab.  Changes to the ro setting
+ * are not allowed when the medium is loaded or if CD-ROM emulation is
+ * being used.
  *
  * When a LUN receive an "eject" SCSI request (Start/Stop Unit),
  * if the LUN is removable, the backing file is released to simulate

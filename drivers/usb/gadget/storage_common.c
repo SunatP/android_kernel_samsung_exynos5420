@@ -15,6 +15,22 @@
  * This file requires the following identifiers used in USB strings to
  * be defined (each of type pointer to char):
  *  - fsg_string_interface    -- name of the interface
+ * The first four are only needed when FSG_DESCRIPTORS_DEVICE_STRINGS
+ * macro is defined prior to including this file.
+ */
+
+/*
+ * When FSG_NO_INTR_EP is defined fsg_fs_intr_in_desc and
+ * fsg_hs_intr_in_desc objects as well as
+ * FSG_FS_FUNCTION_PRE_EP_ENTRIES and FSG_HS_FUNCTION_PRE_EP_ENTRIES
+ * macros are not defined.
+ *
+ * When FSG_NO_DEVICE_STRINGS is defined FSG_STRING_MANUFACTURER,
+ * FSG_STRING_PRODUCT, FSG_STRING_SERIAL and FSG_STRING_CONFIG are not
+ * defined (as well as corresponding entries in string tables are
+ * missing) and FSG_STRING_INTERFACE has value of zero.
+ *
+ * When FSG_NO_OTG is defined fsg_otg_desc won't be defined.
  */
 
 /*

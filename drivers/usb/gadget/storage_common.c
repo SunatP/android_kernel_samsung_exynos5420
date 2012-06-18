@@ -511,6 +511,7 @@ static int fsg_lun_open(struct fsg_lun *curlun, const char *filename)
 	if (fsg_lun_is_open(curlun))
 		fsg_lun_close(curlun);
 
+	get_file(filp);
 	curlun->blksize = blksize;
 	curlun->blkbits = blkbits;
 	curlun->ro = ro;

@@ -398,11 +398,21 @@ static void tcp_v6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 	np = inet6_sk(sk);
 
 	if (type == ICMPV6_PKT_TOOBIG) {
-		tp->mtu_info = ntohl(info);
-		if (!sock_owned_by_user(sk))
-			tcp_v6_mtu_reduced(sk);
-		else
-			set_bit(TCP_MTU_REDUCED_DEFERRED, &tp->tsq_flags);
+		struct dst_entry *dst;
+
+		if (sock_owned_by_user(sk))
+			goto out;
+		if ((1 << sk->sk_state) & (TCPF_LISTEN | TCPF_CLOSE))
+			goto out;
+
+		dst = inet6_csk_update_pmtu(sk, ntohl(info));
+		if (!dst)
+			goto out;
+
+		if (inet_csk(sk)->icsk_pmtu_cookie > dst_mtu(dst)) {
+			tcp_sync_mss(sk, dst_mtu(dst));
+			tcp_simple_retransmit(sk);
+		}
 		goto out;
 	}
 

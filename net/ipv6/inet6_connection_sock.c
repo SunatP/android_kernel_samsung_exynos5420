@@ -207,13 +207,13 @@ struct dst_entry *__inet6_csk_dst_check(struct sock *sk, u32 cookie)
 	return dst;
 }
 
-static struct dst_entry *inet6_csk_route_socket(struct sock *sk,
-						struct flowi6 *fl6)
+static struct dst_entry *inet6_csk_route_socket(struct sock *sk)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct in6_addr *final_p, final;
 	struct dst_entry *dst;
+	struct flowi6 fl6;
 
 	memset(fl6, 0, sizeof(*fl6));
 	fl6->flowi6_proto = sk->sk_protocol;
@@ -234,7 +234,7 @@ static struct dst_entry *inet6_csk_route_socket(struct sock *sk,
 
 	dst = __inet6_csk_dst_check(sk, np->dst_cookie);
 	if (!dst) {
-		dst = ip6_dst_lookup_flow(sk, fl6, final_p, false);
+		dst = ip6_dst_lookup_flow(sk, &fl6, final_p, false);
 
 		if (!IS_ERR(dst))
 			__inet6_csk_dst_store(sk, dst, NULL, NULL);
@@ -250,7 +250,7 @@ int inet6_csk_xmit(struct sk_buff *skb, struct flowi *fl_unused)
 	struct dst_entry *dst;
 	int res;
 
-	dst = inet6_csk_route_socket(sk, &fl6);
+	dst = inet6_csk_route_socket(sk);
 	if (IS_ERR(dst)) {
 		sk->sk_err_soft = -PTR_ERR(dst);
 		sk->sk_route_caps = 0;
@@ -273,14 +273,12 @@ EXPORT_SYMBOL_GPL(inet6_csk_xmit);
 
 struct dst_entry *inet6_csk_update_pmtu(struct sock *sk, u32 mtu)
 {
-	struct flowi6 fl6;
-	struct dst_entry *dst = inet6_csk_route_socket(sk, &fl6);
+	struct dst_entry *dst = inet6_csk_route_socket(sk);
 
 	if (IS_ERR(dst))
 		return NULL;
 	dst->ops->update_pmtu(dst, mtu);
 
-	dst = inet6_csk_route_socket(sk, &fl6);
-	return IS_ERR(dst) ? NULL : dst;
+	return inet6_csk_route_socket(sk);
 }
 EXPORT_SYMBOL_GPL(inet6_csk_update_pmtu);

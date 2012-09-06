@@ -1000,6 +1000,37 @@ unknown:
 static int __init printer_func_bind(struct usb_configuration *c,
 		struct usb_function *f)
 {
+	struct printer_dev *dev = container_of(f, struct printer_dev, function);
+	struct usb_composite_dev *cdev = c->cdev;
+	struct usb_ep		*in_ep, *out_ep;
+	int id;
+
+	id = usb_interface_id(c, f);
+	if (id < 0)
+		return id;
+	intf_desc.bInterfaceNumber = id;
+
+	/* all we really need is bulk IN/OUT */
+	in_ep = usb_ep_autoconfig(cdev->gadget, &fs_ep_in_desc);
+	if (!in_ep) {
+autoconf_fail:
+		dev_err(&cdev->gadget->dev, "can't autoconfigure on %s\n",
+			cdev->gadget->name);
+		return -ENODEV;
+	}
+	in_ep->driver_data = in_ep;	/* claim */
+
+	out_ep = usb_ep_autoconfig(cdev->gadget, &fs_ep_out_desc);
+	if (!out_ep)
+		goto autoconf_fail;
+	out_ep->driver_data = out_ep;	/* claim */
+
+	/* assumes that all endpoints are dual-speed */
+	hs_ep_in_desc.bEndpointAddress = fs_ep_in_desc.bEndpointAddress;
+	hs_ep_out_desc.bEndpointAddress = fs_ep_out_desc.bEndpointAddress;
+
+	dev->in_ep = in_ep;
+	dev->out_ep = out_ep;
 	return 0;
 }
 
@@ -1015,7 +1046,8 @@ static int printer_func_set_alt(struct usb_function *f,
 	int ret = -ENOTSUPP;
 
 	if (!alt)
-		ret = set_interface(dev, PRINTER_INTERFACE);
+		ret = set_interface(dev, intf);
+
 	return ret;
 }
 
@@ -1106,6 +1138,10 @@ static int __init printer_bind_config(struct usb_configuration *c)
 	dev->function.set_alt = printer_func_set_alt;
 	dev->function.disable = printer_func_disable;
 
+	status = usb_add_function(c, &dev->function);
+	if (status)
+		return status;
+
 	/* Setup the sysfs files for the printer gadget. */
 	dev->pdev = device_create(usb_gadget_class, NULL, g_printer_devno,
 				  NULL, "g_printer");
@@ -1176,9 +1212,6 @@ static int __init printer_bind_config(struct usb_configuration *c)
 	dev->current_rx_bytes = 0;
 	dev->current_rx_buf = NULL;
 
-	dev->in_ep = in_ep;
-	dev->out_ep = out_ep;
-
 	for (i = 0; i < QLEN; i++) {
 		req = printer_req_alloc(dev->in_ep, USB_BUFSIZE, GFP_KERNEL);
 		if (!req) {
@@ -1211,8 +1244,6 @@ static int __init printer_bind_config(struct usb_configuration *c)
 	dev->gadget = gadget;
 
 	INFO(dev, "%s, version: " DRIVER_VERSION "\n", driver_desc);
-	INFO(dev, "using %s, OUT %s IN %s\n", gadget->name, out_ep->name,
-			in_ep->name);
 	return 0;
 
 fail:
@@ -1227,7 +1258,17 @@ static int printer_unbind(struct usb_composite_dev *cdev)
 
 static int __init printer_bind(struct usb_composite_dev *cdev)
 {
-	return usb_add_config(cdev, &printer_cfg_driver, printer_bind_config);
+	int ret;
+
+	ret = usb_string_ids_tab(cdev, strings);
+	if (ret < 0)
+		return ret;
+	device_desc.iManufacturer = strings[STRING_MANUFACTURER].id;
+	device_desc.iProduct = strings[STRING_PRODUCT].id;
+	device_desc.iSerialNumber = strings[STRING_SERIALNUM].id;
+
+	ret = usb_add_config(cdev, &printer_cfg_driver, printer_bind_config);
+	return ret;
 }
 
 static struct usb_composite_driver printer_driver = {

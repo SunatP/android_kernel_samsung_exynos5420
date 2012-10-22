@@ -1006,7 +1006,8 @@ afunc_bind(struct usb_configuration *cfg, struct usb_function *fn)
 err:
 	kfree(agdev->uac2.p_prm.rbuf);
 	kfree(agdev->uac2.c_prm.rbuf);
-	usb_free_all_descriptors(fn);
+	usb_free_descriptors(fn->hs_descriptors);
+	usb_free_descriptors(fn->descriptors);
 	if (agdev->in_ep)
 		agdev->in_ep->driver_data = NULL;
 	if (agdev->out_ep)

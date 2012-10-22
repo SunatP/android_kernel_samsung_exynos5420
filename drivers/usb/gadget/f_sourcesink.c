@@ -388,31 +388,24 @@ no_iso:
 		isoc_maxpacket = 1024;
 
 	/* support high speed hardware */
-	if (gadget_is_dualspeed(c->cdev->gadget)) {
-		hs_source_desc.bEndpointAddress =
-				fs_source_desc.bEndpointAddress;
-		hs_sink_desc.bEndpointAddress =
-				fs_sink_desc.bEndpointAddress;
+	hs_source_desc.bEndpointAddress = fs_source_desc.bEndpointAddress;
+	hs_sink_desc.bEndpointAddress = fs_sink_desc.bEndpointAddress;
 
-		/*
-		 * Fill in the HS isoc descriptors from the module parameters.
-		 * We assume that the user knows what they are doing and won't
-		 * give parameters that their UDC doesn't support.
-		 */
-		hs_iso_source_desc.wMaxPacketSize = isoc_maxpacket;
-		hs_iso_source_desc.wMaxPacketSize |= isoc_mult << 11;
-		hs_iso_source_desc.bInterval = isoc_interval;
-		hs_iso_source_desc.bEndpointAddress =
-				fs_iso_source_desc.bEndpointAddress;
+	/*
+	 * Fill in the HS isoc descriptors from the module parameters.
+	 * We assume that the user knows what they are doing and won't
+	 * give parameters that their UDC doesn't support.
+	 */
+	hs_iso_source_desc.wMaxPacketSize = isoc_maxpacket;
+	hs_iso_source_desc.wMaxPacketSize |= isoc_mult << 11;
+	hs_iso_source_desc.bInterval = isoc_interval;
+	hs_iso_source_desc.bEndpointAddress =
+		fs_iso_source_desc.bEndpointAddress;
 
-		hs_iso_sink_desc.wMaxPacketSize = isoc_maxpacket;
-		hs_iso_sink_desc.wMaxPacketSize |= isoc_mult << 11;
-		hs_iso_sink_desc.bInterval = isoc_interval;
-		hs_iso_sink_desc.bEndpointAddress =
-				fs_iso_sink_desc.bEndpointAddress;
-
-		f->hs_descriptors = hs_source_sink_descs;
-	}
+	hs_iso_sink_desc.wMaxPacketSize = isoc_maxpacket;
+	hs_iso_sink_desc.wMaxPacketSize |= isoc_mult << 11;
+	hs_iso_sink_desc.bInterval = isoc_interval;
+	hs_iso_sink_desc.bEndpointAddress = fs_iso_sink_desc.bEndpointAddress;
 
 	if (isoc_maxpacket > 1024)
 		isoc_maxpacket = 1024;
@@ -438,37 +431,37 @@ no_iso:
 	hs_iso_sink_desc.bEndpointAddress = fs_iso_sink_desc.bEndpointAddress;
 
 	/* support super speed hardware */
-	if (gadget_is_superspeed(c->cdev->gadget)) {
-		ss_source_desc.bEndpointAddress =
-				fs_source_desc.bEndpointAddress;
-		ss_sink_desc.bEndpointAddress =
-				fs_sink_desc.bEndpointAddress;
+	ss_source_desc.bEndpointAddress =
+		fs_source_desc.bEndpointAddress;
+	ss_sink_desc.bEndpointAddress =
+		fs_sink_desc.bEndpointAddress;
 
-		/*
-		 * Fill in the SS isoc descriptors from the module parameters.
-		 * We assume that the user knows what they are doing and won't
-		 * give parameters that their UDC doesn't support.
-		 */
-		ss_iso_source_desc.wMaxPacketSize = isoc_maxpacket;
-		ss_iso_source_desc.bInterval = isoc_interval;
-		ss_iso_source_comp_desc.bmAttributes = isoc_mult;
-		ss_iso_source_comp_desc.bMaxBurst = isoc_maxburst;
-		ss_iso_source_comp_desc.wBytesPerInterval =
-			isoc_maxpacket * (isoc_mult + 1) * (isoc_maxburst + 1);
-		ss_iso_source_desc.bEndpointAddress =
-				fs_iso_source_desc.bEndpointAddress;
+	/*
+	 * Fill in the SS isoc descriptors from the module parameters.
+	 * We assume that the user knows what they are doing and won't
+	 * give parameters that their UDC doesn't support.
+	 */
+	ss_iso_source_desc.wMaxPacketSize = isoc_maxpacket;
+	ss_iso_source_desc.bInterval = isoc_interval;
+	ss_iso_source_comp_desc.bmAttributes = isoc_mult;
+	ss_iso_source_comp_desc.bMaxBurst = isoc_maxburst;
+	ss_iso_source_comp_desc.wBytesPerInterval =
+		isoc_maxpacket * (isoc_mult + 1) * (isoc_maxburst + 1);
+	ss_iso_source_desc.bEndpointAddress =
+		fs_iso_source_desc.bEndpointAddress;
 
-		ss_iso_sink_desc.wMaxPacketSize = isoc_maxpacket;
-		ss_iso_sink_desc.bInterval = isoc_interval;
-		ss_iso_sink_comp_desc.bmAttributes = isoc_mult;
-		ss_iso_sink_comp_desc.bMaxBurst = isoc_maxburst;
-		ss_iso_sink_comp_desc.wBytesPerInterval =
-			isoc_maxpacket * (isoc_mult + 1) * (isoc_maxburst + 1);
-		ss_iso_sink_desc.bEndpointAddress =
-				fs_iso_sink_desc.bEndpointAddress;
+	ss_iso_sink_desc.wMaxPacketSize = isoc_maxpacket;
+	ss_iso_sink_desc.bInterval = isoc_interval;
+	ss_iso_sink_comp_desc.bmAttributes = isoc_mult;
+	ss_iso_sink_comp_desc.bMaxBurst = isoc_maxburst;
+	ss_iso_sink_comp_desc.wBytesPerInterval =
+		isoc_maxpacket * (isoc_mult + 1) * (isoc_maxburst + 1);
+	ss_iso_sink_desc.bEndpointAddress = fs_iso_sink_desc.bEndpointAddress;
 
-		f->ss_descriptors = ss_source_sink_descs;
-	}
+	ret = usb_assign_descriptors(f, fs_source_sink_descs,
+			hs_source_sink_descs, ss_source_sink_descs);
+	if (ret)
+		return ret;
 
 	DBG(cdev, "%s speed %s: IN/%s, OUT/%s, ISO-IN/%s, ISO-OUT/%s\n",
 	    (gadget_is_superspeed(c->cdev->gadget) ? "super" :

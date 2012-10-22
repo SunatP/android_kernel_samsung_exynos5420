@@ -50,11 +50,6 @@ static int c_ssize = 2;
 module_param(c_ssize, uint, S_IRUGO);
 MODULE_PARM_DESC(c_ssize, "Capture Sample Size(bytes)");
 
-#define ALT_SET(x, a)	do {(x) &= ~0xff; (x) |= (a); } while (0)
-#define ALT_GET(x)	((x) & 0xff)
-#define INTF_SET(x, i)	do {(x) &= 0xff; (x) |= ((i) << 8); } while (0)
-#define INTF_GET(x)	((x >> 8) & 0xff)
-
 /* Keep everyone on toes */
 #define USB_XFERS	2
 

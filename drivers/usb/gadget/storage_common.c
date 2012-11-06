@@ -15,22 +15,6 @@
  * This file requires the following identifiers used in USB strings to
  * be defined (each of type pointer to char):
  *  - fsg_string_interface    -- name of the interface
- * The first four are only needed when FSG_DESCRIPTORS_DEVICE_STRINGS
- * macro is defined prior to including this file.
- */
-
-/*
- * When FSG_NO_INTR_EP is defined fsg_fs_intr_in_desc and
- * fsg_hs_intr_in_desc objects as well as
- * FSG_FS_FUNCTION_PRE_EP_ENTRIES and FSG_HS_FUNCTION_PRE_EP_ENTRIES
- * macros are not defined.
- *
- * When FSG_NO_DEVICE_STRINGS is defined FSG_STRING_MANUFACTURER,
- * FSG_STRING_PRODUCT, FSG_STRING_SERIAL and FSG_STRING_CONFIG are not
- * defined (as well as corresponding entries in string tables are
- * missing) and FSG_STRING_INTERFACE has value of zero.
- *
- * When FSG_NO_OTG is defined fsg_otg_desc won't be defined.
  */
 
 /*
@@ -347,26 +331,6 @@ fsg_hs_bulk_out_desc = {
 	.bInterval =		1,	/* NAK every 1 uframe */
 };
 
-#ifndef FSG_NO_INTR_EP
-
-static struct usb_endpoint_descriptor
-fsg_hs_intr_in_desc = {
-	.bLength =		USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType =	USB_DT_ENDPOINT,
-
-	/* bEndpointAddress copied from fs_intr_in_desc during fsg_bind() */
-	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	cpu_to_le16(2),
-	.bInterval =		USB_MS_TO_HS_INTERVAL(32),	/* 32 ms */
-};
-
-#ifndef FSG_NO_OTG
-#  define FSG_HS_FUNCTION_PRE_EP_ENTRIES	2
-#else
-#  define FSG_HS_FUNCTION_PRE_EP_ENTRIES	1
-#endif
-
-#endif
 
 static struct usb_descriptor_header *fsg_hs_function[] = {
 	(struct usb_descriptor_header *) &fsg_intf_desc,
@@ -408,34 +372,6 @@ static struct usb_ss_ep_comp_descriptor fsg_ss_bulk_out_comp_desc = {
 
 	/*.bMaxBurst =		DYNAMIC, */
 };
-
-#ifndef FSG_NO_INTR_EP
-
-static struct usb_endpoint_descriptor
-fsg_ss_intr_in_desc = {
-	.bLength =		USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType =	USB_DT_ENDPOINT,
-
-	/* bEndpointAddress copied from fs_intr_in_desc during fsg_bind() */
-	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	cpu_to_le16(2),
-	.bInterval =		USB_MS_TO_HS_INTERVAL(32),	/* 32 ms */
-};
-
-static struct usb_ss_ep_comp_descriptor fsg_ss_intr_in_comp_desc = {
-	.bLength =		sizeof(fsg_ss_bulk_in_comp_desc),
-	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
-
-	.wBytesPerInterval =	cpu_to_le16(2),
-};
-
-#ifndef FSG_NO_OTG
-#  define FSG_SS_FUNCTION_PRE_EP_ENTRIES	2
-#else
-#  define FSG_SS_FUNCTION_PRE_EP_ENTRIES	1
-#endif
-
-#endif
 
 static __maybe_unused struct usb_ext_cap_descriptor fsg_ext_cap_desc = {
 	.bLength =		USB_DT_USB_EXT_CAP_SIZE,

@@ -57,9 +57,6 @@ struct send_queue {
 
 	/* TX: fragments + linear part + virtio header */
 	struct scatterlist sg[MAX_SKB_FRAGS + 2];
-
-	/* Name of the send queue: output.$index */
-	char name[40];
 };
 
 /* Internal representation of a receive virtqueue */
@@ -77,24 +74,15 @@ struct receive_queue {
 
 	/* RX: fragments + linear part + virtio header */
 	struct scatterlist sg[MAX_SKB_FRAGS + 2];
-
-	/* Name of this receive queue: input.$index */
-	char name[40];
 };
 
 struct virtnet_info {
 	struct virtio_device *vdev;
 	struct virtqueue *cvq;
 	struct net_device *dev;
-	struct send_queue *sq;
-	struct receive_queue *rq;
+	struct send_queue sq;
+	struct receive_queue rq;
 	unsigned int status;
-
-	/* Max # of queue pairs supported by the device */
-	u16 max_queue_pairs;
-
-	/* # of queue pairs currently used by the driver */
-	u16 curr_queue_pairs;
 
 	/* I like... big packets and I cannot lie! */
 	bool big_packets;
@@ -119,12 +107,6 @@ struct virtnet_info {
 
 	/* Lock for config space updates */
 	struct mutex config_lock;
-
-	/* Does the affinity hint is set for virtqueues? */
-	bool affinity_hint_set;
-
-	/* Per-cpu variable to show the mapping from CPU to virtqueue */
-	int __percpu *vq_index;
 };
 
 struct skb_vnet_hdr {
@@ -549,7 +531,7 @@ static bool try_fill_recv(struct receive_queue *rq, gfp_t gfp)
 static void skb_recv_done(struct virtqueue *rvq)
 {
 	struct virtnet_info *vi = rvq->vdev->priv;
-	struct receive_queue *rq = &vi->rq[vq2rxq(rvq)];
+	struct receive_queue *rq = &vi->rq;
 
 	/* Schedule NAPI, Suppress further interrupts if successful. */
 	if (napi_schedule_prep(&rq->napi)) {
@@ -581,8 +563,9 @@ static void refill_work(struct work_struct *work)
 	bool still_empty;
 	int i;
 
-	for (i = 0; i < vi->max_queue_pairs; i++) {
-		struct receive_queue *rq = &vi->rq[i];
+	napi_disable(&vi->rq.napi);
+	still_empty = !try_fill_recv(&vi->rq, GFP_KERNEL);
+	virtnet_napi_enable(&vi->rq);
 
 		napi_disable(&rq->napi);
 		still_empty = !try_fill_recv(rq, GFP_KERNEL);
@@ -630,21 +613,6 @@ again:
 	}
 
 	return received;
-}
-
-static int virtnet_open(struct net_device *dev)
-{
-	struct virtnet_info *vi = netdev_priv(dev);
-	int i;
-
-	for (i = 0; i < vi->max_queue_pairs; i++) {
-		/* Make sure we have some buffers: if oom use wq. */
-		if (!try_fill_recv(&vi->rq[i], GFP_KERNEL))
-			queue_delayed_work(system_nrt_wq, &vi->refill, 0);
-		virtnet_napi_enable(&vi->rq[i]);
-	}
-
-	return 0;
 }
 
 static unsigned int free_old_xmit_skbs(struct send_queue *sq)
@@ -719,8 +687,7 @@ static int xmit_skb(struct send_queue *sq, struct sk_buff *skb)
 static netdev_tx_t start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct virtnet_info *vi = netdev_priv(dev);
-	int qnum = skb_get_queue_mapping(skb);
-	struct send_queue *sq = &vi->sq[qnum];
+	struct send_queue *sq = &vi->sq;
 	int capacity;
 
 	/* Free up any pending old buffers before queueing new ones. */
@@ -756,12 +723,12 @@ static netdev_tx_t start_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Apparently nice girls don't return TX_BUSY; stop the queue
 	 * before it gets out of hand.  Naturally, this wastes entries. */
 	if (capacity < 2+MAX_SKB_FRAGS) {
-		netif_stop_subqueue(dev, qnum);
+		netif_stop_queue(dev);
 		if (unlikely(!virtqueue_enable_cb_delayed(sq->vq))) {
 			/* More just got used, free them then recheck. */
 			capacity += free_old_xmit_skbs(sq);
 			if (capacity >= 2+MAX_SKB_FRAGS) {
-				netif_start_subqueue(dev, qnum);
+				netif_start_queue(dev);
 				virtqueue_disable_cb(sq->vq);
 			}
 		}
@@ -827,10 +794,21 @@ static void virtnet_netpoll(struct net_device *dev)
 	struct virtnet_info *vi = netdev_priv(dev);
 	int i;
 
-	for (i = 0; i < vi->curr_queue_pairs; i++)
-		napi_schedule(&vi->rq[i].napi);
+	napi_schedule(&vi->rq.napi);
 }
 #endif
+
+static int virtnet_open(struct net_device *dev)
+{
+	struct virtnet_info *vi = netdev_priv(dev);
+
+	/* Make sure we have some buffers: if oom use wq. */
+	if (!try_fill_recv(&vi->rq, GFP_KERNEL))
+		queue_delayed_work(system_nrt_wq, &vi->refill, 0);
+
+	virtnet_napi_enable(&vi->rq);
+	return 0;
+}
 
 /*
  * Send command via the control virtqueue and check status.  Commands
@@ -917,9 +895,7 @@ static int virtnet_close(struct net_device *dev)
 
 	/* Make sure refill_work doesn't re-enable napi! */
 	cancel_delayed_work_sync(&vi->refill);
-
-	for (i = 0; i < vi->max_queue_pairs; i++)
-		napi_disable(&vi->rq[i].napi);
+	napi_disable(&vi->rq.napi);
 
 	return 0;
 }
@@ -1078,8 +1054,8 @@ static void virtnet_get_ringparam(struct net_device *dev,
 {
 	struct virtnet_info *vi = netdev_priv(dev);
 
-	ring->rx_max_pending = virtqueue_get_vring_size(vi->rq[0].vq);
-	ring->tx_max_pending = virtqueue_get_vring_size(vi->sq[0].vq);
+	ring->rx_max_pending = virtqueue_get_vring_size(vi->rq.vq);
+	ring->tx_max_pending = virtqueue_get_vring_size(vi->sq.vq);
 	ring->rx_pending = ring->rx_max_pending;
 	ring->tx_pending = ring->tx_max_pending;
 }
@@ -1242,7 +1218,14 @@ static void virtnet_config_changed(struct virtio_device *vdev)
 	queue_work(system_nrt_wq, &vi->config_work);
 }
 
-static void virtnet_free_queues(struct virtnet_info *vi)
+static void virtnet_del_vqs(struct virtnet_info *vi)
+{
+	struct virtio_device *vdev = vi->vdev;
+
+	vdev->config->del_vqs(vdev);
+}
+
+static int init_vqs(struct virtnet_info *vi)
 {
 	kfree(vi->rq);
 	kfree(vi->sq);
@@ -1258,10 +1241,8 @@ static void free_receive_bufs(struct virtnet_info *vi)
 	}
 }
 
-static void free_unused_bufs(struct virtnet_info *vi)
-{
-	void *buf;
-	int i;
+	vi->rq.vq = vqs[0];
+	vi->sq.vq = vqs[1];
 
 	for (i = 0; i < vi->max_queue_pairs; i++) {
 		struct virtqueue *vq = vi->sq[i].vq;
@@ -1487,9 +1468,11 @@ static int virtnet_probe(struct virtio_device *vdev)
 
 	/* Set up our device-specific information */
 	vi = netdev_priv(dev);
+	netif_napi_add(dev, &vi->rq.napi, virtnet_poll, napi_weight);
 	vi->dev = dev;
 	vi->vdev = vdev;
 	vdev->priv = vi;
+	vi->rq.pages = NULL;
 	vi->stats = alloc_percpu(struct virtnet_stats);
 	err = -ENOMEM;
 	if (vi->stats == NULL)
@@ -1502,6 +1485,8 @@ static int virtnet_probe(struct virtio_device *vdev)
 	mutex_init(&vi->config_lock);
 	vi->config_enable = true;
 	INIT_WORK(&vi->config_work, virtnet_config_changed_work);
+	sg_init_table(vi->rq.sg, ARRAY_SIZE(vi->rq.sg));
+	sg_init_table(vi->sq.sg, ARRAY_SIZE(vi->sq.sg));
 
 	/* If we can receive ANY GSO packets, we must allocate large ones. */
 	if (virtio_has_feature(vdev, VIRTIO_NET_F_GUEST_TSO4) ||
@@ -1535,15 +1520,12 @@ static int virtnet_probe(struct virtio_device *vdev)
 	}
 
 	/* Last of all, set up some receive buffers. */
-	for (i = 0; i < vi->max_queue_pairs; i++) {
-		try_fill_recv(&vi->rq[i], GFP_KERNEL);
+	try_fill_recv(&vi->rq, GFP_KERNEL);
 
-		/* If we didn't even get one input buffer, we're useless. */
-		if (vi->rq[i].num == 0) {
-			free_unused_bufs(vi);
-			err = -ENOMEM;
-			goto free_recv_bufs;
-		}
+	/* If we didn't even get one input buffer, we're useless. */
+	if (vi->rq.num == 0) {
+		err = -ENOMEM;
+		goto unregister;
 	}
 
 	/* Assume link up if device can't report link status,
@@ -1565,15 +1547,34 @@ free_recv_bufs:
 	free_receive_bufs(vi);
 	unregister_netdev(dev);
 free_vqs:
-	cancel_delayed_work_sync(&vi->refill);
 	virtnet_del_vqs(vi);
-free_index:
-	free_percpu(vi->vq_index);
 free_stats:
 	free_percpu(vi->stats);
 free:
 	free_netdev(dev);
 	return err;
+}
+
+static void free_unused_bufs(struct virtnet_info *vi)
+{
+	void *buf;
+	while (1) {
+		buf = virtqueue_detach_unused_buf(vi->sq.vq);
+		if (!buf)
+			break;
+		dev_kfree_skb(buf);
+	}
+	while (1) {
+		buf = virtqueue_detach_unused_buf(vi->rq.vq);
+		if (!buf)
+			break;
+		if (vi->mergeable_rx_bufs || vi->big_packets)
+			give_pages(&vi->rq, buf);
+		else
+			dev_kfree_skb(buf);
+		--vi->rq.num;
+	}
+	BUG_ON(vi->rq.num != 0);
 }
 
 static void remove_vq_common(struct virtnet_info *vi)
@@ -1583,9 +1584,10 @@ static void remove_vq_common(struct virtnet_info *vi)
 	/* Free unused buffers in both send and recv, if any. */
 	free_unused_bufs(vi);
 
-	free_receive_bufs(vi);
-
 	virtnet_del_vqs(vi);
+
+	while (vi->rq.pages)
+		__free_pages(get_a_page(&vi->rq, GFP_KERNEL), 0);
 }
 
 static void __devexit virtnet_remove(struct virtio_device *vdev)
@@ -1628,10 +1630,7 @@ static int virtnet_freeze(struct virtio_device *vdev)
 	cancel_delayed_work_sync(&vi->refill);
 
 	if (netif_running(vi->dev))
-		for (i = 0; i < vi->max_queue_pairs; i++) {
-			napi_disable(&vi->rq[i].napi);
-			netif_napi_del(&vi->rq[i].napi);
-		}
+		napi_disable(&vi->rq.napi);
 
 	remove_vq_common(vi);
 
@@ -1650,14 +1649,12 @@ static int virtnet_restore(struct virtio_device *vdev)
 		return err;
 
 	if (netif_running(vi->dev))
-		for (i = 0; i < vi->max_queue_pairs; i++)
-			virtnet_napi_enable(&vi->rq[i]);
+		virtnet_napi_enable(&vi->rq);
 
 	netif_device_attach(vi->dev);
 
-	for (i = 0; i < vi->max_queue_pairs; i++)
-		if (!try_fill_recv(&vi->rq[i], GFP_KERNEL))
-			queue_delayed_work(system_nrt_wq, &vi->refill, 0);
+	if (!try_fill_recv(&vi->rq, GFP_KERNEL))
+		queue_delayed_work(system_nrt_wq, &vi->refill, 0);
 
 	mutex_lock(&vi->config_lock);
 	vi->config_enable = true;

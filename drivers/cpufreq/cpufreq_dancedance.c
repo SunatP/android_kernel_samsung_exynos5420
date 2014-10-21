@@ -2,7 +2,6 @@
  *  drivers/cpufreq/cpufreq_dancedance.c
  *
  *  Copyright (C)  2012 Shaun Nuzzo <jrracinfan@gmail.com>
- *            (C)  2014 LoungeKatt <twistedumbrella@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -28,14 +27,16 @@
  * It helps to keep variable names smaller, simpler
  */
 
-#define DEF_FREQUENCY_UP_THRESHOLD		(90)
-#define DEF_FREQUENCY_DOWN_THRESHOLD		(30)
+#define DEF_FREQUENCY_UP_THRESHOLD		(95)
+#define DEF_FREQUENCY_DOWN_THRESHOLD		(40)
 #define MIN_SAMPLING_RATE_RATIO			(2)
+#define MIN_SAMPLING_RATE                       10000
+#define DEF_SAMPLING_RATE                       15000
 
 static unsigned int min_sampling_rate;
 
-#define LATENCY_MULTIPLIER			(1000)
-#define MIN_LATENCY_MULTIPLIER			(100)
+#define LATENCY_MULTIPLIER			(500)
+#define MIN_LATENCY_MULTIPLIER			(20)
 #define DEF_SAMPLING_DOWN_FACTOR		(1)
 #define MAX_SAMPLING_DOWN_FACTOR		(10)
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
@@ -104,41 +105,41 @@ static struct dbs_tuners {
 	.down_threshold = DEF_FREQUENCY_DOWN_THRESHOLD,
 	.sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR,
 	.ignore_nice = 0,
-	.freq_step = 5,
+	.freq_step = 3,
 };
 
-//static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu,
-//						  u64 *wall)
-//{
-//    u64 idle_time;
-//    u64 cur_wall_time;
-//    u64 busy_time;
-//
-//    cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
-//
-//    busy_time  = kcpustat_cpu(cpu).cpustat[CPUTIME_USER];
-//    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM];
-//    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ];
-//    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ];
-//    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_STEAL];
-//    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_NICE];
-//
-//    idle_time = cur_wall_time - busy_time;
-//    if (wall)
-//	*wall = jiffies_to_usecs(cur_wall_time);
-//
-//    return jiffies_to_usecs(idle_time);
-//}
-//
-//static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
-//{
-//    u64 idle_time = get_cpu_idle_time_us(cpu, wall);
-//
-//    if (idle_time == -1ULL)
-//	return get_cpu_idle_time_jiffy(cpu, wall);
-//
-//    return idle_time;
-//}
+static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu,
+						  u64 *wall)
+{
+    u64 idle_time;
+    u64 cur_wall_time;
+    u64 busy_time;
+
+    cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
+
+    busy_time  = kcpustat_cpu(cpu).cpustat[CPUTIME_USER];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_STEAL];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_NICE];
+
+    idle_time = cur_wall_time - busy_time;
+    if (wall)
+	*wall = jiffies_to_usecs(cur_wall_time);
+
+    return jiffies_to_usecs(idle_time);
+}
+
+static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
+{
+    u64 idle_time = get_cpu_idle_time_us(cpu, wall);
+
+    if (idle_time == -1ULL)
+	return get_cpu_idle_time_jiffy(cpu, wall);
+
+    return idle_time;
+}
 
 /* keep track of frequency transitions */
 static int
@@ -280,7 +281,7 @@ static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
 		struct cpu_dbs_info_s *dbs_info;
 		dbs_info = &per_cpu(cs_cpu_dbs_info, j);
 		dbs_info->prev_cpu_idle = get_cpu_idle_time(j,
-						&dbs_info->prev_cpu_wall, 0);
+						&dbs_info->prev_cpu_wall);
 		if (dbs_tuners_ins.ignore_nice)
 		      dbs_info->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
 	}
@@ -361,7 +362,7 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 		j_dbs_info = &per_cpu(cs_cpu_dbs_info, j);
 
-		cur_idle_time = get_cpu_idle_time(j, &cur_wall_time, 0);
+		cur_idle_time = get_cpu_idle_time(j, &cur_wall_time);
 
 		wall_time = (unsigned int) (cur_wall_time - j_dbs_info->prev_cpu_wall);
 		j_dbs_info->prev_cpu_wall = cur_wall_time;
@@ -500,7 +501,7 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 	delay -= jiffies % delay;
 
 	dbs_info->enable = 1;
-	INIT_DEFERRABLE_WORK(&dbs_info->work, do_dbs_timer);
+	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
 	schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, delay);
 }
 
@@ -533,7 +534,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			j_dbs_info->cur_policy = policy;
 
 			j_dbs_info->prev_cpu_idle = get_cpu_idle_time(j,
-						&j_dbs_info->prev_cpu_wall, 0);
+						&j_dbs_info->prev_cpu_wall);
 			if (dbs_tuners_ins.ignore_nice) {
 				j_dbs_info->prev_cpu_nice =
 						kcpustat_cpu(j).cpustat[CPUTIME_NICE];
@@ -566,14 +567,9 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			 * conservative does not implement micro like ondemand
 			 * governor, thus we are bound to jiffes/HZ
 			 */
-			min_sampling_rate =
-				MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
-			/* Bring kernel and HW constraints together */
-			min_sampling_rate = max(min_sampling_rate,
-					MIN_LATENCY_MULTIPLIER * latency);
-			dbs_tuners_ins.sampling_rate =
-				max(min_sampling_rate,
-				    latency * LATENCY_MULTIPLIER);
+                        min_sampling_rate = MIN_SAMPLING_RATE;
+                        /* Bring kernel and HW constraints together */
+                        dbs_tuners_ins.sampling_rate = DEF_SAMPLING_RATE;
 
 			cpufreq_register_notifier(
 					&dbs_cpufreq_notifier_block,
@@ -649,4 +645,7 @@ fs_initcall(cpufreq_gov_dbs_init);
 module_init(cpufreq_gov_dbs_init);
 #endif
 module_exit(cpufreq_gov_dbs_exit);
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8b457ac9304 (cpufreq: Add back all Governors)

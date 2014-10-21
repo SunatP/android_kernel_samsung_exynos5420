@@ -3,7 +3,6 @@
  *
  * Copyright (C) 2010 Google, Inc.
  * Copyright (C) 2014 Paul Reioux
- * Copyright (C) 2014 Kyriacos Elpidorou [for the Note 4 Adaptation]
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -66,7 +65,7 @@ static spinlock_t speedchange_cpumask_lock;
 static struct mutex gov_lock;
 
 /* Hi speed to bump to from lo speed when load burst (default max) */
-static unsigned int hispeed_freq;
+static unsigned int hispeed_freq = 1728000;
 
 /* Go to hi speed when CPU load at or above this value. */
 #define DEFAULT_GO_HISPEED_LOAD 99
@@ -172,6 +171,19 @@ static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
 	return jiffies_to_usecs(idle_time);
 }
 
+static inline cputime64_t get_cpu_idle_time(unsigned int cpu,
+					    cputime64_t *wall)
+{
+	u64 idle_time = get_cpu_idle_time_us(cpu, wall);
+
+	if (idle_time == -1ULL)
+		idle_time = get_cpu_idle_time_jiffy(cpu, wall);
+	else if (!io_is_busy)
+		idle_time += get_cpu_iowait_time_us(cpu, wall);
+
+	return idle_time;
+}
+
 static void cpufreq_interactive_timer_resched(
 	struct cpufreq_interactive_cpuinfo *pcpu)
 {
@@ -181,7 +193,7 @@ static void cpufreq_interactive_timer_resched(
 	spin_lock_irqsave(&pcpu->load_lock, flags);
 	pcpu->time_in_idle =
 		get_cpu_idle_time(smp_processor_id(),
-				     &pcpu->time_in_idle_timestamp, 0);
+				     &pcpu->time_in_idle_timestamp);
 	pcpu->cputime_speedadj = 0;
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
 	expires = jiffies + usecs_to_jiffies(timer_rate);
@@ -218,7 +230,7 @@ static void cpufreq_interactive_timer_start(int cpu)
 
 	spin_lock_irqsave(&pcpu->load_lock, flags);
 	pcpu->time_in_idle =
-		get_cpu_idle_time(cpu, &pcpu->time_in_idle_timestamp, 0);
+		get_cpu_idle_time(cpu, &pcpu->time_in_idle_timestamp);
 	pcpu->cputime_speedadj = 0;
 	pcpu->cputime_speedadj_timestamp = pcpu->time_in_idle_timestamp;
 	spin_unlock_irqrestore(&pcpu->load_lock, flags);
@@ -359,7 +371,7 @@ static u64 update_load(int cpu)
 	unsigned int delta_time;
 	u64 active_time;
 
-	now_idle = get_cpu_idle_time(cpu, &now, 0);
+	now_idle = get_cpu_idle_time(cpu, &now);
 	delta_idle = (unsigned int)(now_idle - pcpu->time_in_idle);
 	delta_time = (unsigned int)(now - pcpu->time_in_idle_timestamp);
 
@@ -852,7 +864,7 @@ static ssize_t show_target_loads(
 		ret += sprintf(buf + ret, "%u%s", target_loads[i],
 			       i & 0x1 ? ":" : " ");
 
-	ret += sprintf(buf + --ret, "\n");
+	sprintf(buf + ret - 1, "\n");
 	spin_unlock_irqrestore(&target_loads_lock, flags);
 	return ret;
 }
@@ -895,7 +907,7 @@ static ssize_t show_above_hispeed_delay(
 		ret += sprintf(buf + ret, "%u%s", above_hispeed_delay[i],
 			       i & 0x1 ? ":" : " ");
 
-	ret += sprintf(buf + --ret, "\n");
+	sprintf(buf + ret - 1, "\n");
 	spin_unlock_irqrestore(&above_hispeed_delay_lock, flags);
 	return ret;
 }
@@ -1388,10 +1400,6 @@ static int cpufreq_governor_intelliactive(struct cpufreq_policy *policy,
 			return 0;
 		}
 
-		if (!policy->cpu)
-			rc = input_register_handler
-				(&interactive_input_handler);
-
 		rc = sysfs_create_group(cpufreq_global_kobject,
 				&interactive_attr_group);
 		if (rc) {
@@ -1418,8 +1426,6 @@ static int cpufreq_governor_intelliactive(struct cpufreq_policy *policy,
 		}
 
 		if (--active_count > 0) {
-			if (!policy->cpu)
-				input_unregister_handler(&interactive_input_handler);
 			mutex_unlock(&gov_lock);
 			return 0;
 		}
@@ -1478,8 +1484,9 @@ static void cpufreq_interactive_nop_timer(unsigned long data)
 
 static int __init cpufreq_intelliactive_init(void)
 {
-	unsigned int i;
+	unsigned int i, rc;
 	struct cpufreq_interactive_cpuinfo *pcpu;
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 
 	/* Initalize per-cpu timers */
 	for_each_possible_cpu(i) {
@@ -1491,6 +1498,8 @@ static int __init cpufreq_intelliactive_init(void)
 		pcpu->cpu_slack_timer.function = cpufreq_interactive_nop_timer;
 		spin_lock_init(&pcpu->load_lock);
 		init_rwsem(&pcpu->enable_sem);
+		if (!i)
+			rc = input_register_handler(&interactive_input_handler);
 	}
 
 	spin_lock_init(&target_loads_lock);
@@ -1503,6 +1512,7 @@ static int __init cpufreq_intelliactive_init(void)
 	if (IS_ERR(speedchange_task))
 		return PTR_ERR(speedchange_task);
 
+	sched_setscheduler_nocheck(speedchange_task, SCHED_FIFO, &param);
 	get_task_struct(speedchange_task);
 
 	/* NB: wake up so the thread does not look hung to the freezer */
@@ -1519,7 +1529,13 @@ module_init(cpufreq_intelliactive_init);
 
 static void __exit cpufreq_interactive_exit(void)
 {
+	unsigned int cpu;
+
 	cpufreq_unregister_governor(&cpufreq_gov_intelliactive);
+	for_each_possible_cpu(cpu) {
+		if(!cpu)
+			input_unregister_handler(&interactive_input_handler);
+	}
 	kthread_stop(speedchange_task);
 	put_task_struct(speedchange_task);
 }
@@ -1531,5 +1547,4 @@ MODULE_AUTHOR("Paul Reioux <reioux@gmail.com>");
 MODULE_DESCRIPTION("'cpufreq_intelliactive' - A cpufreq governor for "
 	"Latency sensitive workloads based on Google's Interactive");
 MODULE_LICENSE("GPL");
-
 

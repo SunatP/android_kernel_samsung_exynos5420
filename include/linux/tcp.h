@@ -171,6 +171,7 @@ struct tcp_info {
 	__u64	tcpi_pacing_rate;
 	__u64	tcpi_max_pacing_rate;
 	__u64   tcpi_bytes_acked; /* RFC4898 tcpEStatsAppHCThruOctetsAcked */
+	__u64   tcpi_bytes_received; /* RFC4898 tcpEStatsAppHCThruOctetsReceived */
 };
 
 /* for TCP_MD5SIG socket option */
@@ -320,9 +321,6 @@ struct tcp_sock {
 	u64	bytes_received;	/* RFC4898 tcpEStatsAppHCThruOctetsReceived
 				 * sum(delta(rcv_nxt)), or how many bytes
 				 * were acked.
-				 */
-	u32	segs_in;	/* RFC4898 tcpEStatsPerfSegsIn
-				 * total number of segments in.
 				 */
  	u32	rcv_nxt;	/* What we want to receive next 	*/
 	u32	copied_seq;	/* Head of yet unread data		*/

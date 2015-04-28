@@ -3568,6 +3568,15 @@ static void tcp_snd_una_update(struct tcp_sock *tp, u32 ack)
 	tp->snd_una = ack;
 }
 
+/* If we update tp->rcv_nxt, also update tp->bytes_received */
+static void tcp_rcv_nxt_update(struct tcp_sock *tp, u32 seq)
+{
+	u32 delta = seq - tp->rcv_nxt;
+
+	tp->bytes_received += delta;
+	tp->rcv_nxt = seq;
+}
+
 /* Update our send window.
  *
  * Window update algorithm, described in RFC793/RFC1122 (used in linux-2.2

@@ -1252,8 +1252,8 @@ static DEVICE_ATTR(wacom_booster_enabled, S_IRUGO | S_IWUSR | S_IWGRP,
 		   wacom_booster_enabled_show, wacom_booster_enabled_store);
 #endif
 
-static DEVICE_ATTR(epen_gestures, S_IWUSR | S_IWGRP | S_IRUGO,
-		   epen_gestures_show, epen_gestures_store);
+static DEVICE_ATTR(epen_insert_state,
+		   S_IRUGO, epen_insert_state_show, NULL);
 
 static struct attribute *epen_attributes[] = {
 	&dev_attr_epen_firm_update.attr,
@@ -1285,7 +1285,7 @@ static struct attribute *epen_attributes[] = {
 #if defined(WACOM_BOOSTER) || defined(CONFIG_INPUT_BOOSTER)
 	&dev_attr_wacom_booster_enabled.attr,
 #endif
-	&dev_attr_epen_gestures.attr,
+	&dev_attr_epen_insert_state.attr,
 	NULL,
 };
 

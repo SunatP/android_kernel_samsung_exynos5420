@@ -503,6 +503,9 @@ enum tsq_flags {
 	TCP_TSQ_DEFERRED,	   /* tcp_tasklet_func() found socket was owned */
 	TCP_WRITE_TIMER_DEFERRED,  /* tcp_write_timer() found socket was owned */
 	TCP_DELACK_TIMER_DEFERRED, /* tcp_delack_timer() found socket was owned */
+	TCP_MTU_REDUCED_DEFERRED,  /* tcp_v{4|6}_err() could not call
+				    * tcp_v{4|6}_mtu_reduced()
+				    */
 };
 
 static inline struct tcp_sock *tcp_sk(const struct sock *sk)

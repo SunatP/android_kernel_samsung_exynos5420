@@ -414,12 +414,10 @@ void tcp_v4_err(struct sk_buff *icmp_skb, u32 info)
 
 		if (code == ICMP_FRAG_NEEDED) { /* PMTU discovery (RFC1191) */
 			tp->mtu_info = info;
-			if (!sock_owned_by_user(sk)) {
+			if (!sock_owned_by_user(sk))
 				tcp_v4_mtu_reduced(sk);
-			} else {
-				if (!test_and_set_bit(TCP_MTU_REDUCED_DEFERRED, &tp->tsq_flags))
-					sock_hold(sk);
-			}
+			else
+				set_bit(TCP_MTU_REDUCED_DEFERRED, &tp->tsq_flags);
 			goto out;
 		}
 
@@ -2648,6 +2646,7 @@ struct proto tcp_prot = {
 	.sendpage		= tcp_sendpage,
 	.backlog_rcv		= tcp_v4_do_rcv,
 	.release_cb		= tcp_release_cb,
+	.mtu_reduced		= tcp_v4_mtu_reduced,
 	.hash			= inet_hash,
 	.unhash			= inet_unhash,
 	.get_port		= inet_csk_get_port,

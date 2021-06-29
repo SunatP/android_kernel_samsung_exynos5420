@@ -1126,6 +1126,8 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &zero,
 		.extra2		= &max_swappiness,
+		.extra2		= &one_hundred,
+
 	},
 #ifdef CONFIG_HUGETLB_PAGE
 	{

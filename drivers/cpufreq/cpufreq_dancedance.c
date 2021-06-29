@@ -645,7 +645,3 @@ fs_initcall(cpufreq_gov_dbs_init);
 module_init(cpufreq_gov_dbs_init);
 #endif
 module_exit(cpufreq_gov_dbs_exit);
-<<<<<<< HEAD
-
-=======
->>>>>>> 8b457ac9304 (cpufreq: Add back all Governors)

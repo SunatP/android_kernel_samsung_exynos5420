@@ -1956,10 +1956,6 @@ restart:
 		shrink_active_list(SWAP_CLUSTER_MAX, mz,
 				   sc, LRU_ACTIVE_ANON);
 
-	/* reclaim/compaction might need reclaim to continue */
-	if (should_continue_reclaim(mz, nr_reclaimed,
-				    sc->nr_scanned - nr_scanned, sc))
-		goto restart;
 
 	throttle_vm_writeout(sc->gfp_mask);
 }

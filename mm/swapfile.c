@@ -1212,12 +1212,8 @@ static unsigned int find_next_to_unuse(struct swap_info_struct *si,
  * if the boolean frontswap is true, only unuse pages_to_unuse pages;
  * pages_to_unuse==0 means all pages; ignored if frontswap is false
  */
-#ifdef CONFIG_FRONTSWAP
-int try_to_unuse(unsigned int type, bool frontswap,
-		 unsigned long pages_to_unuse)
-#else
+
 static int try_to_unuse(unsigned int type)
-#endif
 {
 	struct swap_info_struct *si = swap_info[type];
 	struct mm_struct *start_mm;

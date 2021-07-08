@@ -869,7 +869,7 @@ int mem_cgroup_count_swap_user(swp_entry_t ent, struct page **pagep)
 	struct swap_info_struct *p;
 	int count = 0;
 
-	page = find_get_page(&swapper_space, ent.val);
+	page = find_get_page(swap_address_space(ent), ent.val);
 	if (page)
 		count += page_mapcount(page);
 	p = swap_info_get(ent);

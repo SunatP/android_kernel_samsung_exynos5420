@@ -11,6 +11,7 @@ struct frontswap_ops {
 	int (*load)(unsigned, pgoff_t, struct page *);
 	void (*invalidate_page)(unsigned, pgoff_t);
 	void (*invalidate_area)(unsigned);
+	struct frontswap_ops *next; /* private pointer to next ops */
 };
 
 extern bool frontswap_enabled;

@@ -24,7 +24,7 @@
  * frontswap_ops is set by frontswap_register_ops to contain the pointers
  * to the frontswap "backend" implementation functions.
  */
-static struct frontswap_ops frontswap_ops __read_mostly;
+static struct frontswap_ops *frontswap_ops __read_mostly;
 
 /*
  * This global enablement flag reduces overhead on systems where frontswap_ops
@@ -73,16 +73,36 @@ static inline void inc_frontswap_succ_stores(void) { }
 static inline void inc_frontswap_failed_stores(void) { }
 static inline void inc_frontswap_invalidates(void) { }
 #endif
+
+
+static DECLARE_BITMAP(need_init, MAX_SWAPFILES);
+
 /*
  * Register operations for frontswap, returning previous thus allowing
  * detection of multiple backends and possible nesting.
  */
-struct frontswap_ops frontswap_register_ops(struct frontswap_ops *ops)
-{
-	struct frontswap_ops old = frontswap_ops;
 
-	frontswap_ops = *ops;
-	frontswap_enabled = true;
+struct frontswap_ops *frontswap_register_ops(struct frontswap_ops *ops)
+{
+	struct frontswap_ops *old = frontswap_ops;
+	int i;
+
+	for (i = 0; i < MAX_SWAPFILES; i++) {
+		if (test_and_clear_bit(i, need_init)) {
+			struct swap_info_struct *sis = swap_info[i];
+			/* __frontswap_init _should_ have set it! */
+			if (!sis->frontswap_map)
+				return ERR_PTR(-EINVAL);
+			ops->init(i);
+		}
+	}
+	/*
+	 * We MUST have frontswap_ops set _after_ the frontswap_init's
+	 * have been called. Otherwise __frontswap_store might fail. Hence
+	 * the barrier to make sure compiler does not re-order us.
+	 */
+	barrier();
+	frontswap_ops = ops;
 	return old;
 }
 EXPORT_SYMBOL(frontswap_register_ops);
@@ -99,14 +119,30 @@ EXPORT_SYMBOL(frontswap_writethrough);
 /*
  * Called when a swap device is swapon'd.
  */
-void __frontswap_init(unsigned type)
+void __frontswap_init(unsigned type, unsigned long *map)
 {
 	struct swap_info_struct *sis = swap_info[type];
 
 	BUG_ON(sis == NULL);
-	if (sis->frontswap_map == NULL)
+
+	/*
+	 * p->frontswap is a bitmap that we MUST have to figure out which page
+	 * has gone in frontswap. Without it there is no point of continuing.
+	 */
+	if (WARN_ON(!map))
 		return;
-	frontswap_ops.init(type);
+	/*
+	 * Irregardless of whether the frontswap backend has been loaded
+	 * before this function or it will be later, we _MUST_ have the
+	 * p->frontswap set to something valid to work properly.
+	 */
+	frontswap_map_set(sis, map);
+	if (frontswap_ops)
+		frontswap_ops->init(type);
+	else {
+		BUG_ON(type > MAX_SWAPFILES);
+		set_bit(type, need_init);
+	}
 }
 EXPORT_SYMBOL(__frontswap_init);
 
@@ -135,7 +171,7 @@ int __frontswap_store(struct page *page)
 	BUG_ON(sis == NULL);
 	if (frontswap_test(sis, offset))
 		dup = 1;
-	ret = frontswap_ops.store(type, offset, page);
+	ret = frontswap_ops->store(type, offset, page);
 	if (ret == 0) {
 		frontswap_set(sis, offset);
 		inc_frontswap_succ_stores();
@@ -173,7 +209,7 @@ int __frontswap_load(struct page *page)
 	BUG_ON(!PageLocked(page));
 	BUG_ON(sis == NULL);
 	if (frontswap_test(sis, offset))
-		ret = frontswap_ops.load(type, offset, page);
+		ret = frontswap_ops->load(type, offset, page);
 	if (ret == 0)
 		inc_frontswap_loads();
 	return ret;
@@ -190,7 +226,7 @@ void __frontswap_invalidate_page(unsigned type, pgoff_t offset)
 
 	BUG_ON(sis == NULL);
 	if (frontswap_test(sis, offset)) {
-		frontswap_ops.invalidate_page(type, offset);
+		frontswap_ops->invalidate_page(type, offset);
 		__frontswap_clear(sis, offset);
 		inc_frontswap_invalidates();
 	}
@@ -208,7 +244,7 @@ void __frontswap_invalidate_area(unsigned type)
 	BUG_ON(sis == NULL);
 	if (sis->frontswap_map == NULL)
 		return;
-	frontswap_ops.invalidate_area(type);
+	frontswap_ops->invalidate_area(type);
 	atomic_set(&sis->frontswap_pages, 0);
 	memset(sis->frontswap_map, 0, sis->max / sizeof(long));
 }

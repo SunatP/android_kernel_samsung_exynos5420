@@ -32,10 +32,8 @@
 #include <linux/poll.h>
 #include <linux/oom.h>
 #include <linux/export.h>
-#ifdef CONFIG_FRONTSWAP
 #include <linux/frontswap.h>
 #include <linux/swapfile.h>
-#endif
 
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
@@ -47,11 +45,7 @@ static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 static void free_swap_count_continuations(struct swap_info_struct *);
 static sector_t map_swap_entry(swp_entry_t, struct block_device**);
 
-#ifdef CONFIG_FRONTSWAP
 DEFINE_SPINLOCK(swap_lock);
-#else
-static DEFINE_SPINLOCK(swap_lock);
-#endif
 
 static unsigned int nr_swapfiles;
 atomic_long_t nr_swap_pages;
@@ -65,15 +59,9 @@ static const char Unused_file[] = "Unused swap file entry ";
 static const char Bad_offset[] = "Bad swap offset entry ";
 static const char Unused_offset[] = "Unused swap offset entry ";
 
-#ifdef CONFIG_FRONTSWAP
 struct swap_list_t swap_list = {-1, -1};
 
 struct swap_info_struct *swap_info[MAX_SWAPFILES];
-#else
-static struct swap_list_t swap_list = {-1, -1};
-
-static struct swap_info_struct *swap_info[MAX_SWAPFILES];
-#endif
 
 static DEFINE_MUTEX(swapon_mutex);
 
@@ -644,9 +632,7 @@ static unsigned char swap_entry_free(struct swap_info_struct *p,
 		set_highest_priority_index(p->type);
 		atomic_long_inc(&nr_swap_pages);
 		p->inuse_pages--;
-#ifdef CONFIG_FRONTSWAP
 		frontswap_invalidate_page(p->type, offset);
-#endif
 		if ((p->flags & SWP_BLKDEV) &&
 				disk->fops->swap_slot_free_notify)
 			disk->fops->swap_slot_free_notify(p->bdev, offset);
@@ -1157,13 +1143,9 @@ static int unuse_mm(struct mm_struct *mm,
  * from current position to next entry still in use.
  * Recycle to start on reaching the end, returning 0 when empty.
  */
-#ifdef CONFIG_FRONTSWAP
+
 static unsigned int find_next_to_unuse(struct swap_info_struct *si,
 					unsigned int prev, bool frontswap)
-#else
-static unsigned int find_next_to_unuse(struct swap_info_struct *si,
-					unsigned int prev)
-#endif
 {
 	unsigned int max = si->max;
 	unsigned int i = prev;
@@ -1189,14 +1171,12 @@ static unsigned int find_next_to_unuse(struct swap_info_struct *si,
 			prev = 0;
 			i = 1;
 		}
-#ifdef CONFIG_FRONTSWAP
 		if (frontswap) {
 			if (frontswap_test(si, i))
 				break;
 			else
 				continue;
 		}
-#endif
 		count = si->swap_map[i];
 		if (count && swap_count(count) != SWAP_MAP_BAD)
 			break;
@@ -1213,7 +1193,8 @@ static unsigned int find_next_to_unuse(struct swap_info_struct *si,
  * pages_to_unuse==0 means all pages; ignored if frontswap is false
  */
 
-static int try_to_unuse(unsigned int type)
+int try_to_unuse(unsigned int type, bool frontswap,
+		 unsigned long pages_to_unuse)
 {
 	struct swap_info_struct *si = swap_info[type];
 	struct mm_struct *start_mm;
@@ -1246,11 +1227,7 @@ static int try_to_unuse(unsigned int type)
 	 * one pass through swap_map is enough, but not necessarily:
 	 * there are races when an instance of an entry might be missed.
 	 */
-#ifdef CONFIG_FRONTSWAP
 	while ((i = find_next_to_unuse(si, i, frontswap)) != 0) {
-#else
-	while ((i = find_next_to_unuse(si, i)) != 0) {
-#endif
 		if (signal_pending(current)) {
 			retval = -EINTR;
 			break;
@@ -1417,12 +1394,10 @@ static int try_to_unuse(unsigned int type)
 		 * interactive performance.
 		 */
 		cond_resched();
-#ifdef CONFIG_FRONTSWAP
 		if (frontswap && pages_to_unuse > 0) {
 			if (!--pages_to_unuse)
 				break;
 		}
-#endif
 	}
 
 	mmput(start_mm);
@@ -1681,26 +1656,16 @@ bad_bmap:
 	goto out;
 }
 
-#ifdef CONFIG_FRONTSWAP
-static void enable_swap_info(struct swap_info_struct *p, int prio,
-				unsigned char *swap_map,
-				unsigned long *frontswap_map)
-#else
-static void enable_swap_info(struct swap_info_struct *p, int prio,
+static void _enable_swap_info(struct swap_info_struct *p, int prio,
 				unsigned char *swap_map)
-#endif
 {
 	int i, prev;
 
-	spin_lock(&swap_lock);
 	if (prio >= 0)
 		p->prio = prio;
 	else
 		p->prio = --least_priority;
 	p->swap_map = swap_map;
-#ifdef CONFIG_FRONTSWAP
-	frontswap_map_set(p, frontswap_map);
-#endif
 	p->flags |= SWP_WRITEOK;
 	atomic_long_add(p->pages, &nr_swap_pages);
 	total_swap_pages += p->pages;
@@ -1717,9 +1682,26 @@ static void enable_swap_info(struct swap_info_struct *p, int prio,
 		swap_list.head = swap_list.next = p->type;
 	else
 		swap_info[prev]->next = p->type;
-#ifdef CONFIG_FRONTSWAP
-	frontswap_init(p->type);
-#endif
+}
+
+static void enable_swap_info(struct swap_info_struct *p, int prio,
+				unsigned char *swap_map,
+				unsigned long *frontswap_map)
+{
+	frontswap_init(p->type, frontswap_map);
+	spin_lock(&swap_lock);
+	spin_lock(&p->lock);
+	 _enable_swap_info(p, prio, swap_map);
+	spin_unlock(&p->lock);
+	spin_unlock(&swap_lock);
+}
+
+static void reinsert_swap_info(struct swap_info_struct *p)
+{
+	spin_lock(&swap_lock);
+	spin_lock(&p->lock);
+	_enable_swap_info(p, p->prio, p->swap_map);
+	spin_unlock(&p->lock);
 	spin_unlock(&swap_lock);
 }
 
@@ -1727,6 +1709,7 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 {
 	struct swap_info_struct *p = NULL;
 	unsigned char *swap_map;
+	unsigned long *frontswap_map;
 	struct file *swap_file, *victim;
 	struct address_space *mapping;
 	struct inode *inode;
@@ -1794,7 +1777,7 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 	spin_unlock(&swap_lock);
 
 	set_current_oom_origin();
-	err = try_to_unuse(type);
+	err = try_to_unuse(type, false, 0);
 	clear_current_oom_origin();
 
 	if (err) {
@@ -1805,11 +1788,7 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 		 * sys_swapoff for this swap_info_struct at this point.
 		 */
 		/* re-insert swap space back into swap_list */
-#ifdef CONFIG_FRONTSWAP
-		enable_swap_info(p, p->prio, p->swap_map, frontswap_map_get(p));
-#else
-		enable_swap_info(p, p->prio, p->swap_map);
-#endif
+		reinsert_swap_info(p);
 		goto out_dput;
 	}
 
@@ -1838,16 +1817,14 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 	swap_map = p->swap_map;
 	p->swap_map = NULL;
 	p->flags = 0;
+	frontswap_map = frontswap_map_get(p);
+	frontswap_map_set(p, NULL);
 	spin_unlock(&p->lock);
-#ifdef CONFIG_FRONTSWAP
 	frontswap_invalidate_area(type);
-#endif
 	spin_unlock(&swap_lock);
 	mutex_unlock(&swapon_mutex);
 	vfree(swap_map);
-#ifdef CONFIG_FRONTSWAP
-	vfree(frontswap_map_get(p));
-#endif
+	vfree(frontswap_map);
 	/* Destroy swap account informatin */
 	swap_cgroup_swapoff(type);
 
@@ -2208,9 +2185,7 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	sector_t span;
 	unsigned long maxpages;
 	unsigned char *swap_map = NULL;
-#ifdef CONFIG_FRONTSWAP
 	unsigned long *frontswap_map = NULL;
-#endif
 	struct page *page = NULL;
 	struct inode *inode = NULL;
 
@@ -2295,11 +2270,9 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 		goto bad_swap;
 	}
 
-#ifdef CONFIG_FRONTSWAP
 	/* frontswap enabled? set up bit-per-page map for frontswap */
 	if (frontswap_enabled)
-		frontswap_map = vzalloc(maxpages / sizeof(long));
-#endif
+		frontswap_map = vzalloc(BITS_TO_LONGS(maxpages) * sizeof(long));
 
 	if (p->bdev) {
 		if (blk_queue_nonrot(bdev_get_queue(p->bdev))) {
@@ -2320,7 +2293,6 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 		prio =
 		  (swap_flags & SWAP_FLAG_PRIO_MASK) >> SWAP_FLAG_PRIO_SHIFT;
 
-#ifdef CONFIG_FRONTSWAP
 	enable_swap_info(p, prio, swap_map, frontswap_map);
 
 	printk(KERN_INFO "Adding %uk swap on %s.  "
@@ -2330,17 +2302,6 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 		(p->flags & SWP_SOLIDSTATE) ? "SS" : "",
 		(p->flags & SWP_DISCARDABLE) ? "D" : "",
 		(frontswap_map) ? "FS" : "");
-
-#else
-	enable_swap_info(p, prio, swap_map);
-
-	printk(KERN_INFO "Adding %uk swap on %s.  "
-			"Priority:%d extents:%d across:%lluk %s%s\n",
-		p->pages<<(PAGE_SHIFT-10), name, p->prio,
-		nr_extents, (unsigned long long)span<<(PAGE_SHIFT-10),
-		(p->flags & SWP_SOLIDSTATE) ? "SS" : "",
-		(p->flags & SWP_DISCARDABLE) ? "D" : "");
-#endif
 
 	mutex_unlock(&swapon_mutex);
 	atomic_inc(&proc_poll_event);

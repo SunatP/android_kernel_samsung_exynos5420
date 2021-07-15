@@ -102,12 +102,14 @@ struct cpufreq_policy {
 	unsigned int		cur;    /* in kHz, only needed if cpufreq
 					 * governors are used */
 	unsigned int            util;  /* CPU utilization at max frequency */
+	unsigned int load_at_max; /* CPU utilization at max frequency */
 	unsigned int		policy; /* see above */
 	struct cpufreq_governor	*governor; /* see below */
 
 	struct work_struct	update; /* if update_policy() needs to be
 					 * called, but you're in IRQ context */
-
+	void			*governor_data;
+	bool			governor_enabled; /* governor start/stop flag */
 	struct cpufreq_real_policy	user_policy;
 
 	struct kobject		kobj;
@@ -276,6 +278,13 @@ static inline void cpufreq_verify_within_limits(struct cpufreq_policy *policy, u
 	if (policy->min > policy->max)
 		policy->min = policy->max;
 	return;
+}
+
+static inline void
+cpufreq_verify_within_cpu_limits(struct cpufreq_policy *policy)
+{
+	cpufreq_verify_within_limits(policy, policy->cpuinfo.min_freq,
+			policy->cpuinfo.max_freq);
 }
 
 struct freq_attr {

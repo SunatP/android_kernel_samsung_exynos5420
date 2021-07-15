@@ -1770,7 +1770,9 @@ static void get_scan_count(struct mem_cgroup_zone *mz, struct scan_control *sc,
 	 * This scanning priority is essentially the inverse of IO cost.
 	 */
 	anon_prio = vmscan_swappiness(sc);
+	
 	file_prio = max_swappiness - vmscan_swappiness(sc);
+
 
 	/*
 	 * OK, so we have swap space and a fair amount of page cache

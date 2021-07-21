@@ -6135,7 +6135,6 @@ static struct nf_hook_ops selinux_ipv6_ops[] = {
 static int __init selinux_nf_ip_init(void)
 {
 	int err = 0;
-
 	if (!selinux_enabled)
 		goto out;
 

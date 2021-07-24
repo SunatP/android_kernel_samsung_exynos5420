@@ -1615,7 +1615,6 @@ int __init sysctl_init(void)
 	return 0;
 }
 
-#endif /* CONFIG_SYSCTL */
 
 /*
  * /proc/sys support

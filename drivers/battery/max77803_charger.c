@@ -1158,7 +1158,7 @@ static int sec_chg_set_property(struct power_supply *psy,
 				current_now = usb_charging_current;
 
 			if (charger->cable_type == POWER_SUPPLY_TYPE_MAINS) {
-				if (charger->siop_level < 100  charger->charging_current_max > SIOP_INPUT_LIMIT_CURRENT)
+				if (charger->siop_level < 100 && charger->charging_current_max > SIOP_INPUT_LIMIT_CURRENT)
 					set_charging_current_max = SIOP_INPUT_LIMIT_CURRENT;
 				else
 					set_charging_current_max = charger->charging_current_max;
